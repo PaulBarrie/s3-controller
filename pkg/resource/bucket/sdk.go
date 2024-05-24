@@ -245,9 +245,104 @@ func (rm *resourceManager) sdkDelete(
 	}
 	var resp *svcsdk.DeleteBucketOutput
 	_ = resp
+	if *r.ko.Spec.PurgeBucketBeforeDeletion {
+		if err := rm.sdkPurgeBucket(r); err != nil {
+			return r, nil
+		}
+	}
+	
 	resp, err = rm.sdkapi.DeleteBucketWithContext(ctx, input)
+
 	rm.metrics.RecordAPICall("DELETE", "DeleteBucket", err)
 	return nil, err
+}
+
+
+func (rm *resourceManager) sdkPurgeBucket(
+	r *resource,
+)  (err error) {
+	if err := rm.sdkDeleteBucketObjects(r); err != nil {
+		return nil
+	}
+	if err := rm.sdkDeleteBucketVersions(r); err != nil {
+		return nil
+	}
+
+	return  nil
+}
+
+func (rm *resourceManager) sdkDeleteBucketObjects(
+	r *resource,
+) (err error) {
+	bucketName := r.ko.Spec.Name
+	objectsInput := &svcsdk.ListObjectsV2Input{Bucket: bucketName}
+
+	for {
+		out, err := rm.sdkapi.ListObjectsV2(objectsInput)
+        if err != nil {
+			return err
+		}
+        for _, item := range out.Contents {
+            if err := rm.sdkDeleteBucketObject(bucketName, item.Key, nil); err != nil {
+				return err
+			}
+        }
+        if *out.IsTruncated {
+            objectsInput.ContinuationToken = out.ContinuationToken
+        } else {
+            break
+        }
+	}
+
+	return nil
+}
+
+func (rm *resourceManager) sdkDeleteBucketVersions(
+	r *resource,
+) (err error) {
+	bucketName := r.ko.Spec.Name
+	versionsInput := &svcsdk.ListObjectVersionsInput{Bucket: bucketName}
+
+	for {
+        out, err := rm.sdkapi.ListObjectVersions(versionsInput)
+        if err != nil {
+            return err
+        }
+
+        for _, item := range out.DeleteMarkers {
+            if err := rm.sdkDeleteBucketObject(bucketName, item.Key, item.VersionId); err != nil {
+				return err
+			}
+        }
+
+        for _, item := range out.Versions {
+            if err := rm.sdkDeleteBucketObject(bucketName, item.Key, item.VersionId); err != nil {
+				return err
+			}
+        }
+
+        if *out.IsTruncated {
+            versionsInput.VersionIdMarker = out.NextVersionIdMarker
+            versionsInput.KeyMarker = out.NextKeyMarker
+        } else {
+            break
+        }
+    }
+
+	return nil
+}
+
+func (rm *resourceManager) sdkDeleteBucketObject(
+	bucketName *string,
+	objectKey *string,
+	bucketVersion *string,
+) error {
+	_, err := rm.sdkapi.DeleteObject(&svcsdk.DeleteObjectInput{
+		Bucket:    bucketName,
+		Key:       objectKey,
+		VersionId: bucketVersion,
+	})
+	return err
 }
 
 // newDeleteRequestPayload returns an SDK-specific struct for the HTTP request

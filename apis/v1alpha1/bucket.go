@@ -88,6 +88,9 @@ type BucketSpec struct {
 	Versioning *VersioningConfiguration `json:"versioning,omitempty"`
 	// Container for the request.
 	Website *WebsiteConfiguration `json:"website,omitempty"`
+	// Allow to delete all objects and versions in the bucket before deletion.
+	// It allows to force deletion of the bucket even if it is not empty.
+	PurgeBucketBeforeDeletion *bool `json:"purgeBucketBeforeDeletion,omitempty"`
 }
 
 // BucketStatus defines the observed state of Bucket
